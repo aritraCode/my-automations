@@ -1,110 +1,99 @@
-from tradingview_ta import TA_Handler
-from datetime import datetime
+import concurrent.futures
+import yfinance as yf
 import requests
-import json
-import pytz
 import os
 
-DBPATH = "./data_base.json"
-LOGPATH = "./trade_log.txt"
 
-def log_message(message):
-    """Append a timestamped message to the trade log file."""
-    with open(LOGPATH, "a") as f:
-        f.write(f"[{date()}] {message}\n")
+def threaded_filter(func, items, max_workers=20):
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(func, item) for item in items]
+        for f in concurrent.futures.as_completed(futures):
+            res = f.result()
+            if res:
+                results.append(res)
+    return results
 
 
-def load_position(filepath=DBPATH):
+def high_volume(symbol:str)-> list | None:
+    symbol = symbol.strip().upper()+".NS"
     try:
-        with open(filepath, "r") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            data = {}
-        for k, v in {"price": 0, "side": 0, "pl": 0}.items():
-            if k not in data:
-                data[k] = v
-        return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"price": 0, "side": 0, "pl": 0}
+        info = yf.Ticker(symbol).info
+        volume = info.get("volume",0)
+        ave_volume = info.get("averageDailyVolume10Day",0)
+        price = info.get("regularMarketPrice",0)
 
+        if price > 100 and price < 5000 and volume > 2*ave_volume:
+            return list((symbol, price, round(volume/ave_volume,2)))
+        else:
+            return None
+    except:
+        return None
 
-def save(data, filepath=DBPATH):
-    with open(filepath, "w") as f:
-        json.dump(data, f)
-
-
-def btc_data():
-    try:
-        handlar = TA_Handler(symbol="BTCUSD", exchange="BITSTAMP", screener="CRYPTO", interval="4h")
-        analysis = handlar.get_analysis()
-        if not analysis:
-            return None, None
-        signal = analysis.summary.get("RECOMMENDATION", None)
-        price = analysis.indicators.get("close", None)
-        return signal, price
-    except Exception:
-        return None, None
-
-
-def date():
-    return datetime.now(pytz.timezone("Asia/Kolkata")).strftime("%d/%m/%Y %A %H:%M:%S")
-
-
-def send_report(message, signal, price, position):
-    price_str = f"{price:.2f}" if isinstance(price, (int, float)) and price is not None else str(price)
-    payload = f"""
-[{date()}] {message}
-signal, price = {signal}, {price_str}
-position = {position}
-"""
+def send_message(msg):  
     try:
         url = os.getenv("URL")
         if isinstance(url, str) and url:
-            response = requests.post(url=url, data=payload)
+            response = requests.post(url=url, data=msg)
             response.raise_for_status()
-            print(payload)
+            return ("success", msg)
         else:
-            print(payload)
+            return ("error", msg)
     except requests.RequestException as e:
-        print(f"Report send error: {e}")
+        return ("error", str(e))
 
+stock_list=["ABB","ABCAPITAL","ADANIENSOL",
+  "ADANIENT","ADANIGREEN","ADANIPORTS","ALKEM",
+  "AMBER","AMBUJACEM","ANGELONE","APLAPOLLO",
+  "APOLLOHOSP","ASHOKLEY","ASIANPAINT","ASTRAL",
+  "AUBANK","AUROPHARMA","AXISBANK","BAJAJ-AUTO",
+  "BAJAJFINSV","BAJFINANCE","BANDHANBNK","BANKBARODA",
+  "BANKINDIA","BDL","BEL","BHARATFORG","BHARTIARTL",
+  "BHEL","BIOCON","BLUESTARCO","BOSCHLTD","BPCL",
+  "BRITANNIA","BSE","CAMS","CANBK","CDSL",
+  "CGPOWER","CHOLAFIN","CIPLA","COALINDIA","COFORGE",
+  "COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT",
+  "DABUR","DALBHARAT","DELHIVERY","DIVISLAB","DIXON",
+  "DLF","DMART","DRREDDY","EICHERMOT","ETERNAL",
+  "EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK",
+  "GMRAIRPORT","GODREJCP","GODREJPROP","GRASIM","HAL",
+  "HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE",
+  "HEROMOTOCO","HFCL","HINDALCO","HINDPETRO","HINDUNILVR",
+  "HINDZINC","HUDCO","ICICIBANK","ICICIGI","ICICIPRULI",
+  "IDEA","IDFCFIRSTB","IEX","IGL","IIFL",
+  "INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER",
+  "INFY","INOXWIND","IOC","IRCTC","IREDA",
+  "IRFC","ITC","JINDALSTEL","JIOFIN","JSWENERGY",
+  "JSWSTEEL","JUBLFOOD","KALYANKJIL","KAYNES","KEI",
+  "KFINTECH","KOTAKBANK","KPITTECH","LAURUSLABS","LICHSGFIN",
+  "LICI","LODHA","LT","LTF","LTIM",
+  "LUPIN","M&M","MANAPPURAM","MANKIND","MARICO",
+  "MARUTI","MAXHEALTH","MAZDOCK","MCX","MFSL",
+  "MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI",
+  "NBCC","NCC","NESTLEIND","NHPC","NMDC",
+  "NTPC","NUVAMA","NYKAA","OBEROIRLTY","OFSS",
+  "OIL","ONGC","PAGEIND","PATANJALI","PAYTM",
+  "PERSISTENT","PETRONET","PFC","PGEL","PHOENIXLTD",
+  "PIDILITIND","PIIND","PNB","PNBHOUSING","POLICYBZR",
+  "POLYCAB","POWERGRID","PPLPHARMA","PRESTIGE","RBLBANK",
+  "RECLTD","RELIANCE","RVNL","SAIL","SAMMAANCAP",
+  "SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN",
+  "SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA",
+  "SUPREMEIND","SUZLON","SYNGENE","TATACHEM","TATACONSUM",
+  "TATAELXSI","TATAMOTORS","TATAPOWER","TATASTEEL","TATATECH",
+  "TCS","TECHM","TIINDIA","TITAGARH","TITAN",
+  "TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","ULTRACEMCO",
+  "UNIONBANK","UNITDSPR","UNOMINDA","UPL","VBL",
+  "VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"
+]
 
-def buy_sell():
-    position = load_position()
-    signal, price = btc_data()
-    action_message = "No trade action"
+results = threaded_filter(high_volume, stock_list)
+if results:
+    sortedList = sorted(results, key=lambda x: x[2], reverse=True)
+    msg = "\n".join([f"{item[0]}: {item[1]} - ({item[2]}x)" for item in sortedList])
+else:
+    msg = "No results"
 
-    if signal is not None and price is not None:
-        if signal in ["BUY", "STRONG_BUY"]:
-            if position["side"] == 0:
-                new_position = {"price": price, "side": 1, "pl": position["pl"]}
-                save(new_position)
-                action_message = f"Opened new LONG position at {price:.2f}"
-            elif position["side"] == -1:
-                pl = position["pl"] + round(((price - position["price"]) * position["side"]), 2)
-                new_position = {"price": price, "side": 1, "pl": pl}
-                save(new_position)
-                action_message = f"Exited SHORT and entered LONG at {price:.2f}, P/L={pl:.2f}"
-
-        elif signal in ["SELL", "STRONG_SELL"]:
-            if position["side"] == 0:
-                new_position = {"price": price, "side": -1, "pl": position["pl"]}
-                save(new_position)
-                action_message = f"Opened new SHORT position at {price:.2f}"
-            elif position["side"] == 1:
-                pl = position["pl"] + round(((price - position["price"]) * position["side"]), 2)
-                new_position = {"price": price, "side": -1, "pl": pl}
-                save(new_position)
-                action_message = f"Exited LONG and entered SHORT at {price:.2f}, P/L={pl:.2f}"
-
-    send_report(action_message, signal, price, str(load_position()))
-
-    # Log the trade action
-    if action_message:
-        log_message(action_message)
-    else:
-        log_message(f"No trade action. Signal={signal}, price={price}")
-
-
-if __name__ == "__main__":
-    buy_sell()
+send = send_message(msg)
+print(send[0])
+print(send[1])
