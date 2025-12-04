@@ -27,4 +27,4 @@ jobs:
       - name: Run script
         env:
           URL: ${{ secrets.URL }}   # optional: store your URL safely
-        run: python your_script_name.py
+        run: python main.py
